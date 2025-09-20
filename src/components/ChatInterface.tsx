@@ -1,33 +1,64 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ArrowLeft, Shield } from "lucide-react";
+import { Send, ArrowLeft, Shield, Brain, Sparkles } from "lucide-react";
+import { WellnessAI, AIResponse } from "@/lib/gemini";
+import MoodIndicator from "./MoodIndicator";
+import BreathingExercise from "./BreathingExercise";
+import CopingStrategies from "./CopingStrategies";
+import CrisisResources from "./CrisisResources";
+import { useToast } from "@/hooks/use-toast";
 
 interface Message {
   id: string;
   content: string;
   isBot: boolean;
   timestamp: Date;
+  aiResponse?: AIResponse;
 }
 
 const ChatInterface = ({ onBack }: { onBack: () => void }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      content: "Hi there! I'm here to listen and support you. This conversation is completely private and anonymous. What's on your mind today?",
-      isBot: true,
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [wellnessAI] = useState(() => new WellnessAI());
+  const [currentMood, setCurrentMood] = useState<any>(null);
+  const [showBreathingExercise, setShowBreathingExercise] = useState(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    // Load previous session if available
+    const lastMood = wellnessAI.loadSession();
+    if (lastMood) {
+      setCurrentMood(lastMood);
+    }
+
+    // Initialize with welcome message
+    const welcomeMessage: Message = {
+      id: "welcome",
+      content: "Hi there! I'm your MindfulSpace AI companion. I'm here to listen, understand, and support you through whatever you're experiencing. This conversation is completely private and anonymous - just between us. What's on your mind today?",
+      isBot: true,
+      timestamp: new Date(),
+    };
+    setMessages([welcomeMessage]);
+  }, [wellnessAI]);
+
+  useEffect(() => {
+    // Auto-scroll to bottom when new messages arrive
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
+    }
+  }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || isTyping) return;
 
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       content: inputValue.trim(),
@@ -39,26 +70,55 @@ const ChatInterface = ({ onBack }: { onBack: () => void }) => {
     setInputValue("");
     setIsTyping(true);
 
-    // Simulate AI response (in a real app, this would call your AI service)
-    setTimeout(() => {
-      const responses = [
-        "I hear you, and what you're feeling is completely valid. Can you tell me more about what's making you feel this way?",
-        "That sounds really challenging. It's okay to feel overwhelmed - you're not alone in this. What would help you feel a bit better right now?",
-        "Thank you for sharing that with me. It takes courage to open up about difficult feelings. How long have you been experiencing this?",
-        "I understand. Sometimes it helps to break things down into smaller pieces. What's the one thing that's worrying you most?",
-        "You're being really brave by talking about this. Let's work through this together. What usually helps you when you're feeling like this?",
-      ];
-
+    try {
+      const aiResponse = await wellnessAI.generateResponse(userMessage.content);
+      
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: responses[Math.floor(Math.random() * responses.length)],
+        content: aiResponse.message,
+        isBot: true,
+        timestamp: new Date(),
+        aiResponse,
+      };
+
+      setMessages(prev => [...prev, botMessage]);
+      setCurrentMood(aiResponse.mood_analysis);
+
+      // Show breathing exercise if high stress/anxiety
+      if (aiResponse.mood_analysis.intensity >= 7 && 
+          ['anxious', 'stressed', 'panic'].includes(aiResponse.mood_analysis.primary_emotion.toLowerCase())) {
+        setShowBreathingExercise(true);
+      }
+
+      // Show crisis resources if needed
+      if (aiResponse.resources?.some(r => r.urgent) || aiResponse.mood_analysis.crisis_indicators.length > 0) {
+        toast({
+          title: "Support Resources Available",
+          description: "I've shared some important resources that might help right now.",
+          variant: "default",
+        });
+      }
+
+    } catch (error) {
+      console.error('Error generating AI response:', error);
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: "I'm having trouble connecting right now, but I'm still here for you. Sometimes technical issues happen, but your feelings and experiences are still completely valid. Can you tell me more about what you're going through?",
         isBot: true,
         timestamp: new Date(),
       };
 
-      setMessages(prev => [...prev, botMessage]);
+      setMessages(prev => [...prev, errorMessage]);
+      
+      toast({
+        title: "Connection Issue",
+        description: "Having trouble with AI responses, but I'm still here to listen.",
+        variant: "destructive",
+      });
+    } finally {
       setIsTyping(false);
-    }, 1500 + Math.random() * 1000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -66,6 +126,23 @@ const ChatInterface = ({ onBack }: { onBack: () => void }) => {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const handleStrategyTried = (strategy: string) => {
+    toast({
+      title: "Great job! 🌟",
+      description: `You tried: ${strategy}`,
+      variant: "default",
+    });
+  };
+
+  const handleBreathingComplete = () => {
+    setShowBreathingExercise(false);
+    toast({
+      title: "Breathing exercise complete! 🧘‍♀️",
+      description: "How are you feeling now?",
+      variant: "default",
+    });
   };
 
   return (
@@ -82,9 +159,17 @@ const ChatInterface = ({ onBack }: { onBack: () => void }) => {
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <div>
-              <h1 className="font-semibold text-foreground">MindfulSpace</h1>
-              <p className="text-xs text-muted-foreground">AI Wellness Companion</p>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-wellness-gradient rounded-full flex items-center justify-center">
+                <Brain className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h1 className="font-semibold text-foreground flex items-center gap-1">
+                  MindfulSpace AI
+                  <Sparkles className="w-3 h-3 text-primary" />
+                </h1>
+                <p className="text-xs text-muted-foreground">Empathetic AI Companion</p>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary-soft px-3 py-1 rounded-full">
@@ -94,34 +179,71 @@ const ChatInterface = ({ onBack }: { onBack: () => void }) => {
         </div>
       </header>
 
+      {/* Mood Indicator */}
+      {currentMood && (
+        <div className="container mx-auto max-w-4xl p-4">
+          <MoodIndicator mood={currentMood} />
+        </div>
+      )}
+
+      {/* Breathing Exercise Modal */}
+      {showBreathingExercise && messages.find(m => m.aiResponse?.breathing_exercise) && (
+        <div className="container mx-auto max-w-4xl p-4">
+          <BreathingExercise 
+            exercise={messages.find(m => m.aiResponse?.breathing_exercise)!.aiResponse!.breathing_exercise!}
+            onComplete={handleBreathingComplete}
+          />
+        </div>
+      )}
+
       {/* Chat Messages */}
       <div className="flex-1 container mx-auto max-w-4xl p-4">
-        <ScrollArea className="h-[calc(100vh-200px)]">
+        <ScrollArea className="h-[calc(100vh-300px)]" ref={scrollAreaRef}>
           <div className="space-y-6 pb-4">
             {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.isBot ? "justify-start" : "justify-end"}`}
-              >
-                <div className={`max-w-xs lg:max-w-md ${message.isBot ? "" : "ml-auto"}`}>
-                  <Card
-                    className={`p-4 ${
-                      message.isBot
-                        ? "bg-card border-border/50"
-                        : "bg-wellness-gradient text-white border-0 shadow-soft"
-                    }`}
-                  >
-                    <p className={`text-sm ${message.isBot ? "text-foreground" : "text-white"}`}>
-                      {message.content}
+              <div key={message.id} className="space-y-4">
+                <div className={`flex ${message.isBot ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-xs lg:max-w-md ${message.isBot ? "" : "ml-auto"}`}>
+                    <Card
+                      className={`p-4 ${
+                        message.isBot
+                          ? "bg-card border-border/50"
+                          : "bg-wellness-gradient text-white border-0 shadow-soft"
+                      }`}
+                    >
+                      <p className={`text-sm ${message.isBot ? "text-foreground" : "text-white"}`}>
+                        {message.content}
+                      </p>
+                    </Card>
+                    <p className="text-xs text-muted-foreground text-center mt-1">
+                      {message.timestamp.toLocaleTimeString([], { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
                     </p>
-                  </Card>
-                  <p className="text-xs text-muted-foreground text-center mt-1">
-                    {message.timestamp.toLocaleTimeString([], { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </p>
+                  </div>
                 </div>
+
+                {/* AI Response Components */}
+                {message.aiResponse && (
+                  <div className="space-y-4 max-w-2xl">
+                    {/* Coping Strategies */}
+                    {message.aiResponse.coping_strategies && message.aiResponse.coping_strategies.length > 0 && (
+                      <CopingStrategies 
+                        strategies={message.aiResponse.coping_strategies}
+                        onStrategyTried={handleStrategyTried}
+                      />
+                    )}
+
+                    {/* Crisis Resources */}
+                    {(message.aiResponse.resources || message.aiResponse.mood_analysis.crisis_indicators.length > 0) && (
+                      <CrisisResources 
+                        resources={message.aiResponse.resources || []}
+                        crisisIndicators={message.aiResponse.mood_analysis.crisis_indicators}
+                      />
+                    )}
+                  </div>
+                )}
               </div>
             ))}
             
@@ -135,7 +257,7 @@ const ChatInterface = ({ onBack }: { onBack: () => void }) => {
                         <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
                         <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                       </div>
-                      <span className="text-xs text-muted-foreground">Typing...</span>
+                      <span className="text-xs text-muted-foreground">AI is thinking...</span>
                     </div>
                   </Card>
                 </div>
@@ -169,7 +291,7 @@ const ChatInterface = ({ onBack }: { onBack: () => void }) => {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground text-center mt-2">
-            This conversation is private and will not be stored or shared with anyone.
+            AI-powered emotional support • Completely private • Not stored anywhere
           </p>
         </div>
       </div>
