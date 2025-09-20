@@ -22,6 +22,7 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          soft: "hsl(var(--primary-soft))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -57,6 +58,18 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+      },
+      backgroundImage: {
+        'wellness-gradient': 'var(--wellness-gradient)',
+        'comfort-gradient': 'var(--comfort-gradient)',
+      },
+      boxShadow: {
+        'soft': 'var(--soft-shadow)',
+        'gentle-glow': 'var(--gentle-glow)',
+      },
+      transitionTimingFunction: {
+        'gentle': 'var(--transition-gentle)',
+        'comfort': 'var(--transition-comfort)',
       },
       borderRadius: {
         lg: "var(--radius)",
